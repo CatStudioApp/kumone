@@ -14,7 +14,7 @@ BUNDLE_ID="im.missuo.Kumone"
 # Version resolution: environment > version.env > defaults.
 ENV_MARKETING_VERSION="${MARKETING_VERSION:-}"
 ENV_BUILD_NUMBER="${BUILD_NUMBER:-}"
-MARKETING_VERSION="0.3.23"
+MARKETING_VERSION="0.3.24"
 BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 [ -f "$ROOT/version.env" ] && source "$ROOT/version.env"
 [ -n "$ENV_MARKETING_VERSION" ] && MARKETING_VERSION="$ENV_MARKETING_VERSION"
@@ -159,6 +159,7 @@ else
 fi
 
 # Localization tables → Bundle.main
+cp "$ROOT/Sources/Kumone/Resources/PrivacyInfo.xcprivacy" "$APP_BUNDLE/Contents/Resources/"
 for lproj in "$ROOT"/Sources/Kumone/Resources/*.lproj; do
   [ -d "$lproj" ] && cp -R "$lproj" "$APP_BUNDLE/Contents/Resources/"
 done
