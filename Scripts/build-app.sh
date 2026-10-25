@@ -20,7 +20,7 @@ BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 [ -n "$ENV_MARKETING_VERSION" ] && MARKETING_VERSION="$ENV_MARKETING_VERSION"
 [ -n "$ENV_BUILD_NUMBER" ] && BUILD_NUMBER="$ENV_BUILD_NUMBER"
 
-SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/MikeChongCan/kumone/releases/latest/download/appcast.xml}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/CatStudioApp/kumone/releases/latest/download/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-bGoJmEwjg5Uk7C1kVa3Lg2I4I66BpAw0Wo+akvQIBZU=}"
 
 BUILD_DIR="$ROOT/.build/app"
