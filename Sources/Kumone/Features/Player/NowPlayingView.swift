@@ -23,7 +23,6 @@ struct NowPlayingView: View {
     #endif
     @State private var activeIndex: Int?
     @State private var isUserScrolling = false
-    @State private var resumeTask: Task<Void, Never>?
     @State private var showLyricsOnMobile = false
     @State private var showQueueOnMobile = false
 
@@ -44,18 +43,19 @@ struct NowPlayingView: View {
             .frame(width: geo.size.width)
             .overlay(alignment: .topLeading) {
                 if showsClassicChrome(isCompact: isCompact) {
-                    Button {
-                        close()
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .frame(width: 36, height: 36)
-                            .background(.white.opacity(0.12), in: Circle())
-                    }
-                    .buttonStyle(.pressable)
-                    .padding(.top, 20)
-                    .padding(.leading, 20)
+                    #if os(macOS)
+                    // The window keeps its own buttons while this page is up
+                    // (#128). Beside them the chevron reads as one toolbar row:
+                    // a 28pt bubble whose center matches the 14pt traffic
+                    // lights (y 19…33 inside the 52pt titlebar).
+                    collapseButton(diameter: 28, glyphSize: 12)
+                        .padding(.top, 12)
+                        .padding(.leading, 91)
+                    #else
+                    collapseButton(diameter: 36, glyphSize: 14)
+                        .padding(.top, 20)
+                        .padding(.leading, 20)
+                    #endif
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -155,6 +155,20 @@ struct NowPlayingView: View {
         #endif
     }
 
+    /// Collapse back to the browse UI. Shared by both platforms so the macOS
+    /// layout can park it beside the window buttons (#128).
+    private func collapseButton(diameter: CGFloat, glyphSize: CGFloat) -> some View {
+        Button {
+            close()
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: glyphSize, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: diameter, height: diameter)
+                .background(.white.opacity(0.12), in: Circle())
+        }
+        .buttonStyle(.pressable)
+    }
 
     /// Jump straight to the line the song is on. Used when the view appears,
     /// where waiting for the next line change would leave the lyrics parked at
@@ -955,17 +969,7 @@ struct NowPlayingView: View {
                 .onChange(of: player.currentTrack?.id) { _ in
                     activeIndex = nil
                 }
-                .simultaneousGesture(
-                    DragGesture().onChanged { _ in
-                        isUserScrolling = true
-                        resumeTask?.cancel()
-                        resumeTask = Task {
-                            try? await Task.sleep(for: .seconds(3))
-                            guard !Task.isCancelled else { return }
-                            isUserScrolling = false
-                        }
-                    }
-                )
+                .lyricsScrollTracking(isUserScrolling: $isUserScrolling)
             }
         } else if player.lyrics?.isInstrumental == true {
             VStack(spacing: 10) {
@@ -1009,11 +1013,12 @@ struct NowPlayingView: View {
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .blur(radius: isActive ? 0 : 0.6)
+            .blur(radius: isActive || isUserScrolling ? 0 : 0.6)
             .scaleEffect(isActive ? 1.02 : 1, anchor: .leading)
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isActive)
+        .animation(.easeOut(duration: 0.25), value: isUserScrolling)
     }
 }
 
@@ -1033,15 +1038,32 @@ struct LyricMainText: View {
     var inactiveOpacity: Double = 0.45
 
     @EnvironmentObject private var player: PlayerService
+    @ObservedObject private var windowVisibility = MainWindowVisibility.shared
 
     var body: some View {
         if isActive, verbatim, let words = line.words, !words.isEmpty {
-            TimelineView(.animation(paused: !player.isPlaying)) { _ in
+            #if os(macOS)
+            // The wipe runs on a display link inside the host: a per-frame
+            // SwiftUI value here re-measured the page's whole layout while a
+            // verbatim line was up (see KaraokeLyricLine).
+            KaraokeLyricLine(
+                line: line,
+                words: words,
+                size: size,
+                weight: weight,
+                playing: player.isPlaying && windowVisibility.isVisible
+            )
+            #else
+            TimelineView(.animation(
+                minimumInterval: 1 / 30,
+                paused: !player.isPlaying || !windowVisibility.isVisible
+            )) { _ in
                 LyricText(
                     line: line, size: size, weight: weight, color: .white,
                     alphas: Self.alphas(for: line, words: words, at: player.livePlaybackTime)
                 )
             }
+            #endif
         } else {
             LyricText(
                 line: line, size: size, weight: weight,
@@ -1082,7 +1104,6 @@ private struct IOSImmersiveLyricsColumn: View {
 
     @State private var activeIndex: Int?
     @State private var isUserScrolling = false
-    @State private var resumeTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -1118,23 +1139,12 @@ private struct IOSImmersiveLyricsColumn: View {
                     .onChange(of: player.currentTrack?.id) { _ in
                         activeIndex = nil
                     }
-                    .simultaneousGesture(
-                        DragGesture()
-                            .onChanged { _ in
-                                isUserScrolling = true
-                                resumeTask?.cancel()
-                                resumeTask = Task { @MainActor in
-                                    try? await Task.sleep(for: .seconds(3))
-                                    guard !Task.isCancelled else { return }
-                                    isUserScrolling = false
-                                    if let activeIndex {
-                                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                                            proxy.scrollTo(activeIndex, anchor: .center)
-                                        }
-                                    }
-                                }
-                            }
-                    )
+                    .lyricsScrollTracking(isUserScrolling: $isUserScrolling) {
+                        guard let activeIndex else { return }
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            proxy.scrollTo(activeIndex, anchor: .center)
+                        }
+                    }
                 }
             } else if player.lyrics?.isInstrumental == true {
                 VStack(spacing: 10) {
@@ -1152,9 +1162,6 @@ private struct IOSImmersiveLyricsColumn: View {
                     .tint(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }
-        .onDisappear {
-            resumeTask?.cancel()
         }
     }
 
@@ -1215,11 +1222,12 @@ private struct IOSImmersiveLyricsColumn: View {
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .blur(radius: isActive ? 0 : 0.4)
+            .blur(radius: isActive || isUserScrolling ? 0 : 0.4)
             .scaleEffect(isActive ? 1.02 : 1.0, anchor: .leading)
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isActive)
+        .animation(.easeOut(duration: 0.25), value: isUserScrolling)
     }
 }
 
@@ -1614,6 +1622,7 @@ private struct CompactQueueContent: View {
 
             if player.upcomingTracks.isEmpty {
                 VStack(spacing: 8) {
+                    PlaybackHandoffList()
                     Image(systemName: "list.bullet")
                         .font(.system(size: 28, weight: .light))
                     Text("播放队列是空的")
@@ -1624,6 +1633,8 @@ private struct CompactQueueContent: View {
             } else {
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 4) {
+                        PlaybackHandoffList()
+                            .padding(.bottom, 4)
                         ForEach(
                             Array(player.upcomingTracks.prefix(100).enumerated()),
                             id: \.offset
@@ -2245,11 +2256,11 @@ private struct MinimalTransportControls: View {
     @ViewBuilder
     private var queueSheet: some View {
         if #available(iOS 16.4, *) {
-            MinimalQueueSheet(backdrop: backdrop)
+            IOSPlaybackQueueView(backdrop: backdrop)
                 .presentationDetents([.fraction(0.5)])
                 .presentationBackgroundInteraction(.enabled)
         } else {
-            MinimalQueueSheet(backdrop: backdrop)
+            IOSPlaybackQueueView(backdrop: backdrop)
                 .presentationDetents([.fraction(0.5)])
         }
     }
@@ -2296,129 +2307,6 @@ private struct MinimalTransportControls: View {
     }
 }
 
-private struct MinimalQueueSheet: View {
-    @EnvironmentObject private var player: PlayerService
-    let backdrop: ArtworkColors
-
-    var body: some View {
-        NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let current = player.currentTrack {
-                        MinimalQueueSectionLabel("正在播放")
-                        MinimalQueueRow(track: current, isCurrent: true)
-
-                        if !player.upcomingTracks.isEmpty {
-                            MinimalQueueSectionLabel("即将播放")
-                                .padding(.top, 10)
-                            ForEach(
-                                Array(player.upcomingTracks.prefix(100).enumerated()),
-                                id: \.offset
-                            ) { index, track in
-                                MinimalQueueRow(track: track, isCurrent: false, upcomingIndex: index)
-                            }
-                        }
-                    } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: "list.bullet")
-                                .font(.system(size: 28, weight: .light))
-                            Text("播放队列是空的")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 240)
-                    }
-                }
-                .padding(10)
-            }
-            .navigationTitle("播放列表")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(player.upcomingTracks.count + (player.hasCurrentTrack ? 1 : 0)) 首")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .background(queueBackdrop)
-    }
-
-    private var queueBackdrop: some View {
-        ZStack {
-            LinearGradient(
-                colors: [backdrop.primary, backdrop.secondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Color.black.opacity(0.45)
-        }
-        .ignoresSafeArea()
-    }
-}
-
-private struct MinimalQueueSectionLabel: View {
-    let text: LocalizedStringKey
-
-    init(_ text: LocalizedStringKey) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-    }
-}
-
-private struct MinimalQueueRow: View {
-    let track: Track
-    let isCurrent: Bool
-    var upcomingIndex: Int? = nil
-
-    @EnvironmentObject private var player: PlayerService
-
-    var body: some View {
-        Button {
-            guard !isCurrent else { return }
-            if let upcomingIndex { player.jumpToUpcoming(at: upcomingIndex, matching: track.id) }
-            else { player.jumpTo(track) }
-        } label: {
-            HStack(spacing: 10) {
-                CachedAsyncImage(url: track.album.picUrl?.resizedImageURL(96), animated: false)
-                    .frame(width: 36, height: 36)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.name)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(isCurrent ? Theme.accent : .primary)
-                        .lineLimit(1)
-                    Text(track.artistNames)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-
-                if isCurrent {
-                    PlayingIndicator(animating: player.isPlaying)
-                } else {
-                    Text(Formatters.duration(track.duration))
-                        .font(.system(size: 10.5).monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 #endif
 

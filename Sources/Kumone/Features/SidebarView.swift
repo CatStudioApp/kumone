@@ -75,6 +75,10 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
+#if os(macOS)
+        // Unlike .hidden, .never also applies when a mouse is connected.
+        .scrollIndicators(.never)
+#endif
         .safeAreaInset(edge: .bottom, spacing: 0) {
             accountFooter
         }
@@ -218,22 +222,26 @@ struct SidebarView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
         } else {
-            Button {
-                showLogin = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.secondary)
-                    Text("登录网易云音乐")
-                        .font(.system(size: 12.5, weight: .medium))
-                    Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                SyncedLoginButtons()
+                    .padding(.horizontal, 14)
+                Button {
+                    showLogin = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.secondary)
+                        Text("登录网易云音乐")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
         }
     }
 }
@@ -323,8 +331,12 @@ private struct AccountChip: View {
             }
             Divider().opacity(0.4)
             Button {
-                showPopover = false
-                Task { await account.logout() }
+                Task {
+                    do {
+                        try await account.logout()
+                        showPopover = false
+                    } catch { ToastCenter.shared.show(error.localizedDescription) }
+                }
             } label: {
                 Text("退出登录")
                     .font(.system(size: 12.5, weight: .medium))
