@@ -15,6 +15,8 @@
 - **macOS**: customizable keyboard shortcuts for playback actions, plus optional system-wide (global) hotkeys — set them under Settings → 快捷键. Global hotkeys are off by default. Thanks @WillowBranch127 (#125, closes #122).
 - **iOS**: search and sort within the Liked Songs playlist. Thanks @yamakze (#121).
 - **iOS + macOS**: iCloud sync (off by default) — continue playback where another device left off, keep settings in sync, and optionally share your sign-in between devices through iCloud Drive or a folder you choose. Shared sign-ins are encrypted with a sync password you set, and signing out revokes the session once no other device is using it. Thanks @yamakze (#138).
+- **iOS + macOS**: a setting to stop the now-playing artwork from opening the album when clicked — Settings → 点击封面打开专辑, on by default. Thanks @danielzmeow (#144, closes #143).
+- **iOS + macOS**: word-by-word lyrics now run for every song — when NetEase has no verbatim timing for a track, the line's time is spread across its characters (the way mygo-cloudmusic does it), so the karaoke wipe no longer falls back to plain line highlighting. Punctuation and spaces light up with the character before them instead of taking singing time of their own.
 
 ### Fixed
 
@@ -25,6 +27,9 @@
 - **macOS**: scrolling the lyrics with a trackpad or mouse wheel no longer snaps back to the current line, and lines stay unblurred while you scroll. Thanks @xyspg (#139).
 - **macOS**: the window buttons stay in place on the immersive now-playing page. Thanks @yxxbc (#130, closes #128).
 - **macOS**: the Settings sub-pages (存储空间, 快捷键) have a back button that no longer overlaps the window controls, and Settings reopens on its main page. Thanks @yamakze (#135).
+- **macOS**: the collapse chevron on the immersive now-playing page is clickable again — the hidden toolbar's sidebar-toggle slot was swallowing the click, so the page only answered to Escape.
+- **iOS + macOS**: translations and romaji line up with verbatim lyrics that start a few hundred milliseconds off the plain lyric grid (those lines used to show no translation), and a song that ships verbatim lyrics without a plain body shows its lyrics instead of none.
+- **iOS + macOS**: the English settings page no longer shows untranslated labels for the now-playing mode, ambient colour, desktop lyrics and update options. Thanks @danielzmeow (#145).
 
 ### Improved
 
@@ -41,6 +46,8 @@
 - **macOS**：可自定义播放等操作的键盘快捷键,并支持可选的全局(系统级)快捷键——在 设置 → 快捷键 里设置,全局快捷键默认关闭。感谢 @WillowBranch127（#125，关闭 #122）。
 - **iOS**：「我喜欢的音乐」歌单内支持搜索与排序。感谢 @yamakze（#121）。
 - **iOS + macOS**：iCloud 同步(默认关闭)——在另一台设备上接续播放、同步设置,并可通过 iCloud 云盘或自选文件夹在设备间共享登录。共享的登录信息以你设置的同步密码加密,退出登录时若已没有其他设备在用该会话,会一并注销。感谢 @yamakze（#138）。
+- **iOS + macOS**：新增「点击封面打开专辑」开关（设置 → 播放页），默认开启；关闭后播放页点击封面不再跳转到专辑。感谢 @danielzmeow（#144，关闭 #143）。
+- **iOS + macOS**：逐字歌词覆盖所有歌曲——网易云没有提供逐字时间轴的歌曲，参照 mygo-cloudmusic 的做法把每行时长按字分摊，卡拉OK 式逐字点亮不再退回整行高亮；标点和空格不再占用演唱时间，跟随前一个字点亮。
 
 ### 修复
 
@@ -51,6 +58,9 @@
 - **macOS**：用触控板或鼠标滚轮翻看歌词时不再被拉回当前句,滚动期间歌词也不再模糊。感谢 @xyspg（#139）。
 - **macOS**：沉浸式播放页上的窗口按钮不再错位。感谢 @yxxbc（#130，关闭 #128）。
 - **macOS**：设置的二级页面(存储空间、快捷键)返回按钮不再与窗口控件重叠,重新打开设置时回到首页。感谢 @yamakze（#135）。
+- **macOS**：沉浸式播放页左上角的收起按钮恢复可点击——此前被隐藏工具栏中侧边栏开关的占位区域挡住，只能按 Esc 关闭。
+- **iOS + macOS**：逐字歌词与普通歌词时间轴相差几百毫秒时，翻译和罗马音不再丢失；只有逐字歌词、没有普通歌词的歌曲也能正常显示歌词。
+- **iOS + macOS**：英文界面的设置页补齐了播放页模式、环境色、桌面歌词、更新等选项的翻译。感谢 @danielzmeow（#145）。
 
 ### 改进
 
