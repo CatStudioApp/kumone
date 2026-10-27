@@ -300,6 +300,11 @@
 "稍后" = "Later";
 "正在下载 %lld%%" = "Downloading %lld%%";
 "已移交 TrollStore 安装" = "Handed off to TrollStore";
+"安装更新" = "Install Update";
+"通过 TrollStore 安装" = "Install via TrollStore";
+"无法启动系统安装" = "Couldn’t start the system install";
+"正在安装更新" = "Installing update";
+"在系统弹窗中点「安装」，完成后从主屏幕重新打开" = "Tap Install in the system prompt, then reopen Kumone from the Home Screen";
 "请在 TrollStore 中完成安装" = "Finish the install in TrollStore";
 "已下载，请用侧载工具安装" = "Downloaded — install with your sideloading tool";
 "完成" = "Done";

@@ -68,6 +68,9 @@ public struct IOSMainWindow: View {
             .sheet(isPresented: $updater.showSheet) {
                 IOSUpdaterSheet()
             }
+            .task {
+                if settings.autoCheckUpdates { updater.check(interactive: false) }
+            }
             .sheet(isPresented: $showLogin) {
                 LoginSheet()
                     .environmentObject(account)

@@ -6,7 +6,11 @@ import UIKit
 /// downloads the IPA with a circular progress ring, then hands it to
 /// TrollStore for installation via `apple-magnifier://install?url=`.
 ///
-/// Auto-install requires **TrollStore** (which registers the
+/// Releases signed for the team's registered devices also carry an OTA
+/// `manifest.plist`; on those devices `installOverTheAir` hands it to iOS via
+/// `itms-services://`, which installs the update in place.
+///
+/// Auto-install otherwise requires **TrollStore** (which registers the
 /// `apple-magnifier` scheme and installs unsigned IPAs system-wide). On a
 /// plain AltStore/SideStore sideload there is no such install primitive, so
 /// the updater falls back to opening the release page for a manual reinstall.
@@ -22,6 +26,7 @@ final class IOSUpdater: NSObject, ObservableObject {
         case downloading(Double)        // 0…1
         case readyToInstall(URL)        // local .ipa (non-TrollStore)
         case handedOff                  // passed to TrollStore
+        case installingOTA              // passed to iOS via itms-services
         case failed(String)
     }
 
@@ -50,6 +55,28 @@ final class IOSUpdater: NSObject, ObservableObject {
                 }
             } catch {
                 phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// OTA path: iOS fetches the manifest, shows its install prompt and swaps
+    /// the app in place (sign-in and settings are kept). Works only on devices
+    /// in the release's provisioning profile; elsewhere iOS reports that the
+    /// app cannot be installed, and the other buttons remain.
+    func installOverTheAir(_ release: ReleaseChecker.Release) {
+        guard let manifestURL = release.manifestURL else {
+            openReleasePage(release)
+            return
+        }
+        let encoded = manifestURL.absoluteString
+            .addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? manifestURL.absoluteString
+        guard let url = URL(string: "itms-services://?action=download-manifest&url=\(encoded)") else {
+            phase = .failed(String(localized: "无法构造安装链接"))
+            return
+        }
+        UIApplication.shared.open(url) { [weak self] success in
+            Task { @MainActor in
+                self?.phase = success ? .installingOTA : .failed(String(localized: "无法启动系统安装"))
             }
         }
     }
@@ -215,10 +242,18 @@ struct IOSUpdaterSheet: View {
                     Text("当前版本 \(ReleaseChecker.currentVersion)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("已装 TrollStore（巨魔）将自动安装；否则用「下载 IPA」手动侧载")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                primaryButton("自动安装（TrollStore）") { updater.installViaTrollStore(release) }
+                if release.manifestURL != nil {
+                    primaryButton("安装更新") { updater.installOverTheAir(release) }
+                    Button("通过 TrollStore 安装") { updater.installViaTrollStore(release) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.accent)
+                } else {
+                    Text("已装 TrollStore（巨魔）将自动安装；否则用「下载 IPA」手动侧载")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    primaryButton("自动安装（TrollStore）") { updater.installViaTrollStore(release) }
+                }
                 Button("下载 IPA 手动侧载") { updater.download(release) }
                     .buttonStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
@@ -247,6 +282,15 @@ struct IOSUpdaterSheet: View {
                 Text("请在 TrollStore 中完成安装").font(.caption).foregroundStyle(.secondary)
                 doneButton
 
+            case .installingOTA:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 44)).foregroundStyle(.green)
+                Text("正在安装更新").font(.headline)
+                Text("在系统弹窗中点「安装」，完成后从主屏幕重新打开")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                doneButton
+
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 40)).foregroundStyle(.orange)
@@ -260,7 +304,7 @@ struct IOSUpdaterSheet: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity)
-        .presentationDetents([.height(360)])
+        .presentationDetents([.height(400)])
     }
 
     private func primaryButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {

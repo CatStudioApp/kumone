@@ -9,6 +9,9 @@ enum ReleaseChecker {
         let url: URL
         /// Direct download URL of the iOS IPA asset, when present.
         let ipaURL: URL?
+        /// OTA install manifest (`manifest.plist`), present on team-signed
+        /// releases that registered devices can install via itms-services.
+        let manifestURL: URL?
     }
 
     static let releasesPage = URL(string: "https://github.com/CatStudioApp/kumone/releases/latest")!
@@ -29,8 +32,10 @@ enum ReleaseChecker {
         let assets = obj["assets"] as? [[String: Any]] ?? []
         let ipa = assets.first { ($0["name"] as? String)?.lowercased().hasSuffix(".ipa") == true }
         let ipaURL = (ipa?["browser_download_url"] as? String).flatMap(URL.init)
+        let manifest = assets.first { ($0["name"] as? String) == "manifest.plist" }
+        let manifestURL = (manifest?["browser_download_url"] as? String).flatMap(URL.init)
         return Release(version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag,
-                       url: url, ipaURL: ipaURL)
+                       url: url, ipaURL: ipaURL, manifestURL: manifestURL)
     }
 
     /// True when `remote` is newer than `local` (numeric dotted compare).
