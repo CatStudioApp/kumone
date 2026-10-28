@@ -1,6 +1,8 @@
 #!/bin/bash
 # Builds Kumone with SwiftPM and wraps the product into a .app bundle.
 # Usage: Scripts/build-app.sh [debug|release]
+# Set SIGN_IDENTITY when building for Developer ID distribution. The archived
+# framework keeps that identity; signing only the outer app cannot change it.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -147,7 +149,7 @@ if [ -n "$METALLIB" ]; then
     "$SCRIPT_DIR/StemResources/Anchor.c" \
     -o "$STEM_FRAMEWORK/Versions/A/KumoneStemResources"
   cp "$SCRIPT_DIR/StemResources/Info.plist" "$STEM_FRAMEWORK/Versions/A/Resources/Info.plist"
-  plutil -insert KumoneResourceVersion -string "$STEM_RESOURCES_VERSION" \
+  plutil -replace KumoneResourceVersion -string "$STEM_RESOURCES_VERSION" \
     "$STEM_FRAMEWORK/Versions/A/Resources/Info.plist"
   cp "$METALLIB" "$STEM_FRAMEWORK/Versions/A/Resources/default.metallib"
   ln -s A "$STEM_FRAMEWORK/Versions/Current"
@@ -183,8 +185,7 @@ for lproj in "$ROOT"/Sources/Kumone/Resources/*.lproj; do
 done
 
 # SwiftPM resource bundles (if any). mlx-swift_Cmlx.bundle only carries the
-# kernels already copied to Contents/MacOS/mlx.metallib above (~100 MB), and
-# MLX finds the colocated copy first, so it is left out.
+# kernels already archived in KumoneStemResources.zip, so it is left out.
 find "$BIN_PATH" -maxdepth 1 -name '*.bundle' -not -name '*Tests*' \
   -not -name 'mlx-swift_Cmlx.bundle' -print0 |
   while IFS= read -r -d '' bundle; do
