@@ -77,7 +77,7 @@ public final class ResidentStemSeparator: @unchecked Sendable {
                                   descriptor: ModelDescriptor = .zfturboVocalsV1) -> Bool {
         #if arch(arm64)
         FileManager.default.fileExists(atPath: modelStore.localURL(for: descriptor).path)
-            && metallibURL() != nil
+            && (StemMetalResources.shared.archive != nil || metallibURL() != nil)
         #else
         // The release app is universal, but MLX's Metal backend is Apple
         // silicon only: the x86_64 slice compiles and must never run it.
