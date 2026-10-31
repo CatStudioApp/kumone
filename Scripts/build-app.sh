@@ -1,6 +1,8 @@
 #!/bin/bash
 # Builds Kumone with SwiftPM and wraps the product into a .app bundle.
 # Usage: Scripts/build-app.sh [debug|release]
+# Set SIGN_IDENTITY when building for Developer ID distribution. The archived
+# framework keeps that identity; signing only the outer app cannot change it.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +27,8 @@ SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-bGoJmEwjg5Uk7C1kVa3Lg2I4I66BpAw0
 
 BUILD_DIR="$ROOT/.build/app"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+STEM_RESOURCES_VERSION="$GIT_COMMIT-$BUILD_NUMBER"
 
 # ARCHES="arm64 x86_64" builds a universal binary (CI release); default is
 # the host architecture for fast dev loops. Each architecture is built on its
@@ -88,6 +92,14 @@ else
 fi
 chmod +x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
+# Keep crash symbols outside the app before removing release-only local symbols.
+# The dSYM UUID still matches the stripped binary; debug builds stay debuggable.
+if [ "$CONF" = "release" ]; then
+  xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/$APP_NAME" \
+    -o "$BUILD_DIR/$APP_NAME.app.dSYM"
+  xcrun strip -x "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+fi
+
 # Embed Sparkle.framework (SwiftPM binary artifact) into Contents/Frameworks.
 SPARKLE_FW="$(find "$ROOT/.build/artifacts" -type d -name 'Sparkle.framework' -path '*macos*' 2>/dev/null | head -n1)"
 if [ -z "$SPARKLE_FW" ]; then
@@ -97,8 +109,8 @@ fi
 mkdir -p "$APP_BUNDLE/Contents/Frameworks"
 cp -a "$SPARKLE_FW" "$APP_BUNDLE/Contents/Frameworks/"
 
-# MLX's Metal kernels, for AutoMix stem transitions, shipped in a resource
-# bundle under Contents/Resources (see below for why not Contents/MacOS).
+# MLX's Metal kernels, for AutoMix stem transitions. Package them compressed
+# in a signed resource framework, loaded from Application Support on first use.
 # Sources, most specific first:
 #   1. $BIN_PATH/mlx.metallib — placed beside this very configuration's binary
 #      by Scripts/fetch-mlx-metallib.sh (Command Line Tools builds).
@@ -126,34 +138,32 @@ if [ -z "$METALLIB" ] && [ "${FETCH_MLX_METALLIB:-0}" = "1" ]; then
   METALLIB="$BIN_PATH/mlx.metallib"
 fi
 if [ -n "$METALLIB" ]; then
-  # Shipped as Contents/Resources/mlx-swift_Cmlx.bundle — the SwiftPM
-  # resource bundle MLX probes (default.metallib) and StemKit's
-  # findMetallib() probes (mlx.metallib, a symlink here). It must NOT live in
-  # Contents/MacOS: codesign treats everything there as nested code, and a
-  # non-Mach-O file can only carry a signature in extended attributes, which
-  # zip extraction may drop (0.3.21 failed Gatekeeper exactly that way).
-  # Under Contents/Resources it is sealed as an ordinary hashed resource.
   echo "mlx.metallib <- $METALLIB"
-  CMLX_DEST="$APP_BUNDLE/Contents/Resources/mlx-swift_Cmlx.bundle/Contents"
-  mkdir -p "$CMLX_DEST/Resources"
-  cp "$METALLIB" "$CMLX_DEST/Resources/default.metallib"
-  ln -s default.metallib "$CMLX_DEST/Resources/mlx.metallib"
-  if [ -f "$BIN_PATH/mlx-swift_Cmlx.bundle/Contents/Info.plist" ]; then
-    cp "$BIN_PATH/mlx-swift_Cmlx.bundle/Contents/Info.plist" "$CMLX_DEST/Info.plist"
+  STEM_FRAMEWORK="$BUILD_DIR/KumoneStemResources.framework"
+  mkdir -p "$STEM_FRAMEWORK/Versions/A/Resources"
+  STEM_ARCH_FLAGS=()
+  for arch in $(lipo -archs "$APP_BUNDLE/Contents/MacOS/$APP_NAME"); do
+    STEM_ARCH_FLAGS+=(-arch "$arch")
+  done
+  xcrun clang -dynamiclib "${STEM_ARCH_FLAGS[@]}" -mmacosx-version-min=15.0 \
+    -install_name '@rpath/KumoneStemResources.framework/Versions/A/KumoneStemResources' \
+    "$SCRIPT_DIR/StemResources/Anchor.c" \
+    -o "$STEM_FRAMEWORK/Versions/A/KumoneStemResources"
+  cp "$SCRIPT_DIR/StemResources/Info.plist" "$STEM_FRAMEWORK/Versions/A/Resources/Info.plist"
+  plutil -replace KumoneResourceVersion -string "$STEM_RESOURCES_VERSION" \
+    "$STEM_FRAMEWORK/Versions/A/Resources/Info.plist"
+  cp "$METALLIB" "$STEM_FRAMEWORK/Versions/A/Resources/default.metallib"
+  ln -s A "$STEM_FRAMEWORK/Versions/Current"
+  ln -s Versions/Current/Resources "$STEM_FRAMEWORK/Resources"
+  ln -s Versions/Current/KumoneStemResources "$STEM_FRAMEWORK/KumoneStemResources"
+  if [ -n "${SIGN_IDENTITY:-}" ]; then
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$STEM_FRAMEWORK"
   else
-    cat > "$CMLX_DEST/Info.plist" <<'CMLXPLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleIdentifier</key><string>mlx-swift.Cmlx.resources</string>
-    <key>CFBundleName</key><string>mlx-swift_Cmlx</string>
-    <key>CFBundlePackageType</key><string>BNDL</string>
-    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-</dict>
-</plist>
-CMLXPLIST
+    codesign --force --sign - "$STEM_FRAMEWORK"
   fi
+  codesign --verify --strict "$STEM_FRAMEWORK"
+  ditto -c -k --keepParent "$STEM_FRAMEWORK" \
+    "$APP_BUNDLE/Contents/Resources/KumoneStemResources.zip"
 else
   # Shipping without the kernels silently disables every stem hand-over and
   # is indistinguishable from a planner bug in the field (2026-08-31: a day
@@ -175,8 +185,8 @@ for lproj in "$ROOT"/Sources/Kumone/Resources/*.lproj; do
   [ -d "$lproj" ] && cp -R "$lproj" "$APP_BUNDLE/Contents/Resources/"
 done
 
-# SwiftPM resource bundles (if any). mlx-swift_Cmlx.bundle is assembled
-# above from whichever metallib was found, so the built one is skipped.
+# SwiftPM resource bundles (if any). mlx-swift_Cmlx.bundle only carries the
+# kernels already archived in KumoneStemResources.zip, so it is left out.
 find "$BIN_PATH" -maxdepth 1 -name '*.bundle' -not -name '*Tests*' \
   -not -name 'mlx-swift_Cmlx.bundle' -print0 |
   while IFS= read -r -d '' bundle; do
@@ -205,8 +215,6 @@ if [ -d "$ICON_SOURCE" ]; then
 fi
 
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
-
-GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -245,6 +253,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
         <key>NSAllowsArbitraryLoads</key><true/>
     </dict>
     <key>KumoneGitCommit</key><string>$GIT_COMMIT</string>
+    <key>KumoneResourceVersion</key><string>$STEM_RESOURCES_VERSION</string>
     <key>SUFeedURL</key><string>$SPARKLE_FEED_URL</string>
     <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
     <key>SUEnableAutomaticChecks</key><true/>
